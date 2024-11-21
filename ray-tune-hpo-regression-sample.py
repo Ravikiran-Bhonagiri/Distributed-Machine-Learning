@@ -7,6 +7,20 @@ from ray import tune
 from ray.tune.schedulers import ASHAScheduler
 from ray.tune.suggest.bayesopt import BayesOptSearch
 import numpy as np
+from datetime import datetime
+import logging
+
+# -------------------------------------------------------------------------------------
+# Setup Logging
+# -------------------------------------------------------------------------------------
+current_time = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+
+logging.basicConfig(
+    filename=f"/home/rxb2495/ray_tune_workflow_sample_run_{current_time}.log",  # Log file
+    level=logging.INFO,  # Log level
+    format="%(asctime)s - %(levelname)s - %(message)s"  # Log format
+)
+logger = logging.getLogger(__name__)  # Logger instance
 
 # -------------------------------------------------------------------------------------
 # Dummy Dataset Creation
@@ -21,6 +35,7 @@ def create_dummy_data(num_samples=1000, seq_len=50, input_size=10):
     Returns:
         train_loader, val_loader: DataLoaders for training and validation.
     """
+    logger.info("Creating dummy dataset...")
     X = np.random.rand(num_samples, seq_len, input_size).astype(np.float32)
     y = np.random.rand(num_samples).astype(np.float32)
 
@@ -36,6 +51,7 @@ def create_dummy_data(num_samples=1000, seq_len=50, input_size=10):
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=32)
 
+    logger.info("Dummy dataset created successfully.")
     return train_loader, val_loader
 
 # -------------------------------------------------------------------------------------
@@ -77,6 +93,7 @@ def train_dummy_model(config, data_loader, val_loader):
         data_loader: Training DataLoader.
         val_loader: Validation DataLoader.
     """
+    logger.info(f"Starting training with config: {config}")
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = SimpleTransformerModel(
         input_size=10,
@@ -92,6 +109,7 @@ def train_dummy_model(config, data_loader, val_loader):
     # Training loop
     for epoch in range(5):  # Short training for testing
         model.train()
+        epoch_loss = 0.0
         for inputs, targets in data_loader:
             inputs, targets = inputs.to(device), targets.to(device)
             optimizer.zero_grad()
@@ -99,6 +117,9 @@ def train_dummy_model(config, data_loader, val_loader):
             loss = criterion(outputs, targets)
             loss.backward()
             optimizer.step()
+            epoch_loss += loss.item()
+
+        logger.info(f"Epoch {epoch + 1}, Training Loss: {epoch_loss / len(data_loader):.4f}")
 
     # Validation loop
     model.eval()
@@ -109,6 +130,7 @@ def train_dummy_model(config, data_loader, val_loader):
             outputs = model(inputs)
             val_loss += criterion(outputs, targets).item()
 
+    logger.info(f"Validation Loss: {val_loss / len(val_loader):.4f}")
     # Report validation loss
     tune.report(validation_loss=val_loss / len(val_loader))
 
@@ -128,6 +150,8 @@ search_space = {
 # Main Script
 # -------------------------------------------------------------------------------------
 if __name__ == "__main__":
+    logger.info("Starting the Ray Tune workflow...")
+
     # Create dummy data
     train_loader, val_loader = create_dummy_data()
 
@@ -137,10 +161,12 @@ if __name__ == "__main__":
         config=search_space,
         num_samples=10,  # Number of trials
         scheduler=ASHAScheduler(metric="validation_loss", mode="min"),
-        resources_per_trial={"cpu": 4, "gpu": 1},  # Run one trial per GPU
+        resources_per_trial={"cpu": 2, "gpu": 1},  # Run one trial per GPU
         local_dir="/home/rxb2495/ray_results",  # Save results locally
         verbose=1
     )
 
-    # Print the best hyperparameters
-    print("Best hyperparameters found: ", analysis.best_config)
+    # Print and log the best hyperparameters
+    best_config = analysis.best_config
+    logger.info(f"Best hyperparameters found: \n {best_config}")
+    print("Best hyperparameters found: \n", best_config)
